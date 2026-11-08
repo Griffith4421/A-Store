@@ -1,0 +1,22 @@
+{
+  "name": "a-store-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A-Store Android app \u2014 A for Aryan, A for Apps.",
+  "scripts": {
+    "android:build": "cordova build android --debug",
+    "android:release": "cordova build android --release",
+    "android:run": "cordova run android"
+  },
+  "devDependencies": {
+    "cordova": "13.0.0"
+  },
+  "cordova": {
+    "platforms": [
+      "android"
+    ],
+    "plugins": {
+      "cordova-plugin-inappbrowser": "6.0.0"
+    }
+  }
+}
