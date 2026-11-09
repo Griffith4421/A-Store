@@ -1,8 +1,8 @@
 {
   "name": "a-store-android",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "A-Store Android app \u2014 A for Aryan, A for Apps.",
+  "description": "A-Store Android app \u2014 A for Aryan, A for Apps. Includes native Android file downloads and user-confirmed APK installation.",
   "scripts": {
     "android:build": "cordova build android --debug",
     "android:release": "cordova build android --release",

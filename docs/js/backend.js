@@ -92,11 +92,25 @@
           ? record.shots.split(',').map((url) => url.trim()).filter(Boolean)
           : cleanArray(record.shots);
         const tags = common.tags;
+        const legacyUrl = record.url || record.link || '';
+        const explicitDownloadUrl = record.downloadLink || record.downloadUrl || record.apkUrl || record.fileUrl || '';
+        const urlLooksLikeFile = (value) => {
+          try { return /\.(apk|aab|zip|7z|rar|pdf|exe|msi|dmg)(?:$|[?#])/i.test(new URL(value).pathname); }
+          catch { return false; }
+        };
+        // Old Griffiti records often stored the direct file URL in `url` or `link`.
+        // Keep those working while preferring the explicit downloadLink field for new records.
+        const downloadUrl = explicitDownloadUrl || (urlLooksLikeFile(legacyUrl) ? legacyUrl : '');
+        const landingUrl = record.websiteUrl || record.externalUrl || (!downloadUrl ? legacyUrl : '');
+        const downloadType = String(record.downloadType || (urlLooksLikeFile(downloadUrl) ? (downloadUrl.match(/\.([a-z0-9]+)(?:$|[?#])/i) || [,''])[1] : '') || '').toLowerCase();
         apps.push({
           ...common,
           tag: record.tag || (tags.length ? tags.join(' · ').toUpperCase() : 'APP · DOWNLOAD'),
           category: record.storeCategory || record.appCategory || (tags[0] || 'App'),
-          url: record.downloadLink || record.url || record.link || '',
+          url: downloadUrl || landingUrl || legacyUrl,
+          downloadUrl,
+          downloadType,
+          externalUrl: landingUrl,
           icon: record.icon || '',
           iconURL: record.iconURL || '',
           platform: record.platform || 'Android',

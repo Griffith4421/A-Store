@@ -5,6 +5,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const APP_PREF_KEY = 'astore-app-prefs-v1';
 const APP_USER_KEY = 'astore-app-user-v1';
+const DOWNLOADS_KEY = 'astore-downloads-v1';
 const PREF_DEFAULTS = { theme: 'light', accent: 'lime', radius: 'soft', reduceMotion: false };
 const USER_DEFAULTS = { read: [], favoriteApps: [], favoritePhotos: [] };
 let prefs = readLocal(APP_PREF_KEY, PREF_DEFAULTS);
@@ -19,6 +20,10 @@ let categoryFilter = 'All';
 let lightboxIndex = 0;
 let activeAppId = null;
 let toastTimer = null;
+let downloadJobs = new Map(Object.entries(readLocal(DOWNLOADS_KEY, {}).jobs || {}));
+let cordovaReady = false;
+const appStartedAt = Date.now();
+let launchSplashHidden = false;
 
 function readLocal(key, defaults) {
   try { return { ...defaults, ...(JSON.parse(localStorage.getItem(key) || '{}') || {}) }; }
@@ -93,10 +98,27 @@ function appIcon(app, size = 58) {
   return `<span class="a-store-icon fallback t-${esc(app.tone || 'green')}" style="--s:${size}px">${esc(glyph)}</span>`;
 }
 function getBtn(app, big = false) {
-  const url = safeUrl(app.url);
-  return url
-    ? `<button class="btn get btn-green ${big ? 'big' : ''}" type="button" data-action="get-app" data-id="${esc(app.id)}">Get</button>`
-    : `<button class="btn get btn-outline ${big ? 'big' : ''}" type="button" data-action="open-app" data-id="${esc(app.id)}">Details</button>`;
+  const id = String(app.id);
+  const currentUrl = AStoreCloud.safeHttpUrl(String(app.downloadUrl || app.url || ''));
+  let job = downloadJobs.get(id);
+  // A newly published app version or URL must not inherit the previous APK's Install state.
+  if (job && (job.url !== currentUrl || job.version !== String(app.version || '') || job.type !== String(app.downloadType || ''))) {
+    downloadJobs.delete(id);
+    persistDownloads();
+    job = null;
+  }
+  const sizeClass = big ? 'big' : '';
+  if (job && ['pending', 'running', 'paused'].includes(job.status)) {
+    const progress = Number.isFinite(job.progress) && job.progress > 0 ? ` ${job.progress}%` : '';
+    return `<button class="btn download-action download-busy ${sizeClass}" type="button" disabled aria-live="polite">Downloading${progress}</button>`;
+  }
+  if (job && job.status === 'successful' && job.isApk) {
+    return `<button class="btn download-action btn-green ${sizeClass}" type="button" data-action="install-apk" data-id="${esc(id)}">Install</button>`;
+  }
+  const url = AStoreCloud.safeHttpUrl(String(app.downloadUrl || app.url || ''));
+  if (!url) return `<button class="btn download-action btn-outline ${sizeClass}" type="button" data-action="open-app" data-id="${esc(id)}">Details</button>`;
+  const repeatLabel = job && job.status === 'successful' ? 'Download again' : 'Download';
+  return `<button class="btn download-action btn-green ${sizeClass}" type="button" data-action="download-app" data-id="${esc(id)}">${repeatLabel}</button>`;
 }
 function favoriteButton(kind, id, active, extraClass = '') {
   const label = active ? 'Remove from favourites' : 'Add to favourites';
@@ -233,17 +255,145 @@ function closeModal() {
   lightboxIndex = null;
 }
 function openExternal(url) {
-  const clean = AStoreCloud.safeHttpUrl(url);
-  if (!clean) return notify('This app does not have a valid download link yet.');
+  const clean = AStoreCloud.safeHttpUrl(String(url || ''));
+  if (!clean) return notify('This item does not have a valid download link yet.');
   if (window.cordova && typeof window.open === 'function') window.open(clean, '_system');
   else window.open(clean, '_blank', 'noopener,noreferrer');
 }
-function getApp(id) {
-  const app = content.apps.find(item => item.id === id);
-  if (!app) return notify('This app is no longer available.');
-  if (!app.url) return openApp(id);
-  openExternal(app.url);
+function safeFileName(value, extension) {
+  const base = String(value || 'A-Store-download').normalize('NFKD')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '').slice(0, 64) || 'A-Store-download';
+  const ext = String(extension || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  return ext && !base.toLowerCase().endsWith(`.${ext}`) ? `${base}.${ext}` : base;
 }
+function fileExtension(url) {
+  try { const path = new URL(url).pathname; const match = path.match(/\.([a-z0-9]{2,6})$/i); return match ? match[1].toLowerCase() : ''; }
+  catch { return ''; }
+}
+function persistDownloads() {
+  try {
+    const recent = Array.from(downloadJobs.entries()).slice(-50);
+    downloadJobs = new Map(recent);
+    localStorage.setItem(DOWNLOADS_KEY, JSON.stringify({ jobs: Object.fromEntries(downloadJobs) }));
+  }
+  catch (error) { console.warn('Could not persist download state:', error); }
+}
+function refreshDownloadUI(appId) {
+  renderMain();
+  if (activeAppId === String(appId) && $('#modal').classList.contains('show')) {
+    const app = content.apps.find(item => String(item.id) === String(appId));
+    const oldButton = $('#modal .download-action');
+    if (app && oldButton) oldButton.outerHTML = getBtn(app, true);
+  }
+}
+function pollDownload(appId) {
+  const key = String(appId);
+  const job = downloadJobs.get(key);
+  const api = window.cordova?.plugins?.astoreDownload;
+  if (!job || !job.id || !api || !cordovaReady) return;
+  api.query(job.id, result => {
+    const current = downloadJobs.get(key);
+    if (!current || current.id !== job.id) return;
+    current.status = result.status || 'running';
+    current.progress = Number(result.progress || 0);
+    current.reason = result.reason || '';
+    current.statusErrors = 0;
+    if (current.status === 'successful') current.progress = 100;
+    persistDownloads();
+    refreshDownloadUI(key);
+    if (current.status === 'successful') {
+      notify(current.isApk ? 'Download complete. Tap Install when you are ready.' : 'Download completed. Check your Downloads folder.');
+      return;
+    }
+    if (current.status === 'failed') {
+      notify(`Download failed${current.reason ? `: ${current.reason}` : '.'}`);
+      downloadJobs.delete(key);
+      persistDownloads();
+      refreshDownloadUI(key);
+      return;
+    }
+    setTimeout(() => pollDownload(key), 1200);
+  }, error => {
+    console.warn('A-Store download status error:', error);
+    const current = downloadJobs.get(key);
+    if (!current || current.id !== job.id) return;
+    current.statusErrors = Number(current.statusErrors || 0) + 1;
+    if (current.statusErrors >= 8) {
+      downloadJobs.delete(key);
+      persistDownloads();
+      refreshDownloadUI(key);
+      notify('The Android download record is no longer available. Check your Downloads folder.');
+      return;
+    }
+    persistDownloads();
+    setTimeout(() => pollDownload(key), 2500);
+  });
+}
+async function downloadApp(id) {
+  const app = content.apps.find(item => String(item.id) === String(id));
+  if (!app) return notify('This app is no longer available.');
+  const rawUrl = app.downloadUrl || app.url || '';
+  const clean = AStoreCloud.safeHttpUrl(String(rawUrl));
+  if (!clean) return notify('This app has no valid download URL yet.');
+
+  const explicitType = String(app.downloadType || '').toLowerCase();
+  const extension = fileExtension(clean);
+  const platform = String(app.platform || 'Android').toLowerCase();
+  const type = explicitType || extension || (platform.includes('android') ? 'apk' : 'website');
+  const isApk = type === 'apk' || extension === 'apk';
+  const isWebLink = type === 'website' || (!app.downloadUrl && !extension && !explicitType);
+  const nativeApi = window.cordova?.plugins?.astoreDownload;
+
+  // Website/PWA and non-file links open normally. Native Android direct files use
+  // Android DownloadManager so large APK downloads continue outside the WebView.
+  if (isWebLink) return openExternal(clean);
+  if (window.cordova && window.cordova.platformId === 'android') {
+    if (!cordovaReady) return notify('A-Store is still preparing the download service. Please try again in a moment.');
+    if (!nativeApi) return notify('The native download service is missing. Rebuild A-Store with the latest build-apk.bat.');
+  } else if (isApk && !window.cordova) {
+    const anchor = document.createElement('a'); anchor.href = clean; anchor.target = '_blank'; anchor.rel = 'noopener noreferrer';
+    document.body.appendChild(anchor); anchor.click(); anchor.remove(); return;
+  } else {
+    return openExternal(clean);
+  }
+
+  const ext = isApk ? 'apk' : (['zip', '7z', 'rar', 'pdf', 'aab'].includes(type) ? type : (extension || 'bin'));
+  const filename = safeFileName(`A-Store-${app.title || 'download'}-${Date.now()}`, ext);
+  const key = String(app.id);
+  try {
+    const result = await new Promise((resolve, reject) => nativeApi.enqueue({
+      url: clean, filename, title: app.title || 'A-Store download',
+      description: `Downloading ${app.title || 'file'} from A-Store`,
+      mimeType: isApk ? 'application/vnd.android.package-archive' : 'application/octet-stream'
+    }, resolve, reject));
+    downloadJobs.set(key, { id: String(result.id), filename, isApk, url: clean, version: String(app.version || ''), type: String(app.downloadType || ''), status: 'pending', progress: 0, startedAt: Date.now() });
+    persistDownloads();
+    refreshDownloadUI(key);
+    notify('Download started. You can track it in your notification shade.');
+    pollDownload(key);
+  } catch (error) {
+    console.error('A-Store download could not start:', error);
+    notify((typeof error === 'string' ? error : error?.message) || 'Could not start the download. Check your connection and link.');
+  }
+}
+function installDownloadedApk(id) {
+  const job = downloadJobs.get(String(id));
+  const api = window.cordova?.plugins?.astoreDownload;
+  if (!job || !job.id || !job.isApk || job.status !== 'successful') return notify('The APK has not finished downloading yet.');
+  if (!api) return notify('The Android installer bridge is unavailable. Rebuild the app with the latest project.');
+  api.openApk(job.id, result => {
+    if (result?.requiresPermission) notify('Allow A-Store to install unknown apps in Android Settings, then tap Install again.');
+    else notify('Opening Android package installer…');
+  }, error => {
+    console.error('APK installer could not open:', error);
+    downloadJobs.delete(String(id));
+    persistDownloads();
+    refreshDownloadUI(String(id));
+    notify((typeof error === 'string' ? error : error?.message) || 'Android could not open this APK. Download it again and retry.');
+  });
+}
+function getApp(id) { downloadApp(id); }
 function openApp(id) {
   const app = content.apps.find(item => item.id === id);
   if (!app) return;
@@ -351,7 +501,8 @@ document.addEventListener('click', event => {
     $('#welcome')?.classList.remove('show');
   } else if (name === 'close-modal') closeModal();
   else if (name === 'open-app') openApp(action.dataset.id);
-  else if (name === 'get-app') { event.stopPropagation(); getApp(action.dataset.id); }
+  else if (name === 'download-app' || name === 'get-app') { event.preventDefault(); event.stopPropagation(); getApp(action.dataset.id); }
+  else if (name === 'install-apk') { event.preventDefault(); event.stopPropagation(); installDownloadedApk(action.dataset.id); }
   else if (name === 'toggle-favorite-app') { event.stopPropagation(); toggleFavorite('app', action.dataset.id); }
   else if (name === 'toggle-favorite-photo') { event.stopPropagation(); toggleFavorite('photo', action.dataset.id); }
   else if (name === 'set-theme') {
@@ -427,6 +578,29 @@ window.addEventListener('hashchange', () => {
   renderMain();
   window.scrollTo({ top: 0, behavior: prefs.reduceMotion ? 'auto' : 'smooth' });
 });
+
+function hideLaunchSplash() {
+  if (launchSplashHidden) return;
+  launchSplashHidden = true;
+  const splash = $('#launch-splash');
+  if (!splash) return;
+  const minimumVisible = 650;
+  const wait = Math.max(0, minimumVisible - (Date.now() - appStartedAt));
+  setTimeout(() => {
+    splash.classList.add('is-hidden');
+    setTimeout(() => splash.remove(), 520);
+  }, wait);
+}
+
+window.addEventListener('deviceready', () => {
+  cordovaReady = true;
+  // Resume status checks for downloads that were running when A-Store was closed.
+  for (const [appId, job] of downloadJobs.entries()) {
+    if (job && job.id && ['pending', 'running', 'paused'].includes(job.status)) pollDownload(appId);
+  }
+}, false);
+window.addEventListener('load', () => setTimeout(hideLaunchSplash, 900), { once: true });
+setTimeout(hideLaunchSplash, 2400); // Never leave the launch artwork covering an offline/error screen.
 
 // Shared published content is loaded from the common Firebase project. Themes,
 // favourites and notice read-state remain private to this device.

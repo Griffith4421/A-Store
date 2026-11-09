@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
+        id="com.aryan.astore.download" version="1.0.0">
+  <name>AStoreDownload</name>
+  <description>Native Android DownloadManager bridge and APK installer hand-off for A-Store.</description>
+  <license>Apache-2.0</license>
+  <js-module src="www/astore-download.js" name="AStoreDownload">
+    <clobbers target="cordova.plugins.astoreDownload" />
+  </js-module>
+  <platform name="android">
+    <config-file target="res/xml/config.xml" parent="/*">
+      <feature name="AStoreDownload">
+        <param name="android-package" value="com.aryan.astore.download.AStoreDownload" />
+      </feature>
+    </config-file>
+    <config-file target="AndroidManifest.xml" parent="/manifest" xmlns:android="http://schemas.android.com/apk/res/android">
+      <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    </config-file>
+    <source-file src="src/android/AStoreDownload.java" target-dir="src/com/aryan/astore/download" />
+  </platform>
+</plugin>

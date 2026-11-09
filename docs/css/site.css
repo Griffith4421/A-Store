@@ -81,3 +81,11 @@
 @media(max-width:800px){.studio-grid{grid-template-columns:1fr}.hero{grid-template-columns:1fr}.hero-art{height:290px}}
 @media(max-width:560px){.settings-fields{grid-template-columns:1fr}.settings-fields .field.full{grid-column:auto}.studio-actions .btn{flex:1}.manage-item{align-items:flex-start}.manage-item__actions{flex-wrap:wrap}.detail-modal .modal-head h2{font-size:23px}.photo-modal-stage{height:52vh}.tiny-status{display:none}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+
+/* App download action */
+.download-card{padding:8px 13px;font-size:10px;white-space:nowrap;flex:none;min-height:32px}
+.download-card:hover{transform:translateY(-2px)}
+@media(max-width:560px){.download-card{padding:7px 10px;font-size:9px;min-height:30px}}
+
+.field-help{display:block;margin-top:6px;font-size:10px;line-height:1.55;color:#858b82}

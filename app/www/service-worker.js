@@ -1,6 +1,6 @@
 /* Minimal app-shell cache. Firebase, Cloudinary and remote content are never cached. */
-const CACHE_NAME = 'astore-shell-v2';
-const SHELL = ['./', './index.html', './css/app.css', './js/config.js', './js/backend.js', './js/app.js', './manifest.webmanifest', './assets/icon-192.png', './assets/icon-512.png'];
+const CACHE_NAME = 'astore-shell-v3';
+const SHELL = ['./', './index.html', './css/app.css', './js/config.js', './js/backend.js', './js/app.js', './manifest.webmanifest', './assets/icon-192.png', './assets/icon-512.png', './assets/splash-screen.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL)).catch(() => undefined));
   self.skipWaiting();

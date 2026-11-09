@@ -154,7 +154,7 @@ function appCard(app, large = false) {
   const image = safeUrl(app.iconURL);
   const visual = image ? `<div class="feature-visual app-visual ${esc(app.tone)}"><img src="${image}" alt="${esc(app.title)} icon" loading="lazy"></div>` : `<div class="feature-visual ${esc(app.tone)}"><span class="visual-orbit"></span><span class="visual-core"></span></div>`;
   return `<article class="feature-card ${large ? 'featured-large' : ''}" role="button" tabindex="0" data-open-type="creation" data-id="${esc(app.id)}" aria-label="View ${esc(app.title)}">
-    ${visual}<div class="feature-body"><span class="feature-tag">${esc(tag)}${app.version ? ` · V${esc(app.version)}` : ''}</span><h3>${esc(app.title)}</h3><p>${esc(app.description || '')}</p><div class="feature-foot"><span class="meta">${esc(app.platform || 'A little thing I made')}</span>${url ? `<a class="arrow" href="${url}" target="_blank" rel="noopener noreferrer" data-stop-card="true" aria-label="Get ${esc(app.title)}">↗</a>` : '<span class="arrow" aria-hidden="true">↗</span>'}</div></div>
+    ${visual}<div class="feature-body"><span class="feature-tag">${esc(tag)}${app.version ? ` · V${esc(app.version)}` : ''}</span><h3>${esc(app.title)}</h3><p>${esc(app.description || '')}</p><div class="feature-foot"><span class="meta">${esc(app.platform || 'A little thing I made')}</span>${url ? `<a class="btn btn-green download-card" href="${url}" target="_blank" rel="noopener noreferrer" data-stop-card="true" aria-label="Download ${esc(app.title)}">↓ Download</a>` : '<span class="meta">Download link unavailable</span>'}</div></div>
   </article>`;
 }
 function projectCard(project) {
@@ -279,6 +279,13 @@ function openEditor(type, id = '') {
   if (id && !item) return notify('That item could not be found.', 'error');
   const isEdit = !!item;
   const title = isEdit ? `Edit ${typeLabel(type)}` : `New ${typeLabel(type)}`;
+  const legacyAppUrl = item?.url || item?.link || '';
+  const legacyLooksLikeFile = /\.(apk|aab|zip|7z|rar|pdf)(?:$|[?#])/i.test(legacyAppUrl);
+  const initialDownloadUrl = item?.downloadLink || item?.downloadUrl || (legacyLooksLikeFile ? legacyAppUrl : '');
+  const initialDownloadExtension = (initialDownloadUrl.match(/\.([a-z0-9]+)(?:$|[?#])/i) || [,''])[1].toLowerCase();
+  const savedDownloadType = String(item?.downloadType || '').toLowerCase();
+  const inferredDownloadType = initialDownloadExtension === 'apk' ? 'apk' : initialDownloadExtension === 'zip' ? 'zip' : (initialDownloadUrl ? 'file' : (item ? 'website' : 'apk'));
+  const initialDownloadType = ['apk', 'zip', 'file', 'website'].includes(savedDownloadType) ? savedDownloadType : (savedDownloadType ? 'file' : inferredDownloadType);
   let fields = '';
   if (type === 'app') {
     fields = `<div class="settings-fields">
@@ -286,7 +293,8 @@ function openEditor(type, id = '') {
       ${editorField('Version', 'version', item?.version || '1.0.0')}
       ${editorField('Short description', 'shortDesc', item?.shortDesc || '', { required: true, full: true, maxlength: 260 })}
       ${editorField('Full description', 'fullDesc', item?.fullDesc || '', { textarea: true, full: true })}
-      ${editorField('Direct download URL', 'downloadLink', item?.downloadLink || '', { type: 'url' })}
+      ${editorField('Direct download URL', 'downloadLink', initialDownloadUrl, { type: 'url', placeholder: 'https://…/your-app.apk' })}
+      <div class="field"><label for="edit-downloadType">Download type</label><select id="edit-downloadType" name="downloadType"><option value="apk" ${initialDownloadType === 'apk' ? 'selected' : ''}>Android APK (install after download)</option><option value="zip" ${initialDownloadType === 'zip' ? 'selected' : ''}>ZIP archive</option><option value="file" ${initialDownloadType === 'file' ? 'selected' : ''}>Other file</option><option value="website" ${initialDownloadType === 'website' ? 'selected' : ''}>Website / web app link</option></select><small class="field-help">For APK installation in the Android app, paste a direct HTTPS link to the .apk file. A webpage or sharing-preview URL is not a direct APK link.</small></div>
       ${editorField('Platform', 'platform', item?.platform || 'Android')}
       ${editorField('Category', 'storeCategory', item?.storeCategory || '', { placeholder: 'Productivity, Utility, Tools…' })}
       ${editorField('App icon URL', 'iconURL', item?.iconURL || '', { type: 'url' })}
@@ -363,7 +371,10 @@ async function submitEditor(form) {
   const files = name => Array.from(form.querySelector(`[name="${name}"]`)?.files || []);
   const tags = splitTags(value('tags'));
   const title = value('title');
+  const rawDownloadUrl = type === 'app' ? value('downloadLink') : '';
+  const validatedDownloadUrl = rawDownloadUrl ? AStoreCloud.safeHttpUrl(rawDownloadUrl) : '';
   if (!title) return notify('Please enter a title.', 'error');
+  if (rawDownloadUrl && (!validatedDownloadUrl || !/^https:\/\//i.test(validatedDownloadUrl))) return notify('Use a valid HTTPS download URL.', 'error');
   editorBusy = true;
   submit.disabled = true;
   try {
@@ -376,7 +387,7 @@ async function submitEditor(form) {
       if (shotFiles.length) screenshots = screenshots.concat(await uploadFiles(shotFiles, status));
       payload = {
         title, category: 'app', shortDesc: value('shortDesc'), fullDesc: value('fullDesc'),
-        downloadLink: AStoreCloud.safeHttpUrl(value('downloadLink')),
+        downloadLink: validatedDownloadUrl, downloadType: ['apk', 'zip', 'file', 'website'].includes(value('downloadType').toLowerCase()) ? value('downloadType').toLowerCase() : 'apk',
         platform: value('platform') || 'Android', version: value('version') || '1.0.0',
         storeCategory: value('storeCategory'), iconURL, screenshots, hasScreenshots: screenshots.length > 0,
         appStore: AStoreCloud.safeHttpUrl(value('appStore')), playStore: AStoreCloud.safeHttpUrl(value('playStore')),
@@ -449,8 +460,9 @@ function openDetail(type, id) {
   const cover = image ? `<img class="detail-cover" src="${image}" alt="${esc(item.title)}" loading="lazy">` : '';
   const screenshots = type === 'creation' && Array.isArray(item.shots) ? item.shots.map(url => safeUrl(url)).filter(Boolean) : [];
   const screenshotMarkup = screenshots.length ? `<div class="detail-shots">${screenshots.map(url => `<button type="button" class="detail-shot" data-action="open-image-url" data-url="${url}"><img src="${url}" alt="${esc(item.title)} screenshot" loading="lazy"></button>`).join('')}</div>` : '';
-  const primaryLink = type === 'blog' ? '' : safeUrl(item.url || item.link);
-  const linkLabel = item.category === 'app' ? 'Get the app ↗' : 'View project ↗';
+  const isAppItem = type === 'creation' && !['code', 'repo'].includes(String(item.category || '').toLowerCase()) && (!!item.platform || !!item.downloadUrl || !!item.downloadType || !!item.appStore || !!item.playStore);
+  const primaryLink = type === 'blog' ? '' : safeUrl(isAppItem ? (item.downloadUrl || item.url || item.link) : (item.url || item.link));
+  const linkLabel = isAppItem ? '↓ Download' : 'View project ↗';
   const body = type === 'blog' ? (item.body || item.excerpt || '') : (item.fullDescription || item.description || '');
   const comments = type === 'blog' ? commentsMarkup('blog', id) : commentsMarkup('creation', id);
   showModal(`<article class="modal detail-modal">${cover}<div class="modal-head"><div><span class="feature-tag">${esc(heading)}${item.version ? ` · V${esc(item.version)}` : ''}</span><h2>${esc(item.title)}</h2><p class="section-sub">${esc(type === 'blog' ? item.date : (item.platform || item.category || ''))}</p></div><button class="close" type="button" data-action="close-modal" aria-label="Close">×</button></div>

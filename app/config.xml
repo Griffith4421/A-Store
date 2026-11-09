@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<widget id="com.aryan.astore" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+<widget id="com.aryan.astore" version="1.1.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
   <name>A-Store</name>
   <description>A for Aryan, A for Apps — apps, gallery pictures and studio notices, made by Aryan.</description>
   <author href="https://github.com/Griffith4421">Aryan</author>
@@ -12,10 +12,13 @@
   <preference name="Orientation" value="default" />
   <preference name="Fullscreen" value="false" />
   <preference name="AndroidInsecureFileModeEnabled" value="false" />
-  <preference name="AndroidWindowSplashScreenBackground" value="#f7f7f4" />
+  <preference name="SplashScreenBackgroundColor" value="#f7f7f4" />
+  <preference name="FadeSplashScreenDuration" value="250" />
   <icon src="res/icon.png" />
   <plugin name="cordova-plugin-inappbrowser" spec="6.0.0" />
   <platform name="android">
     <preference name="android-minSdkVersion" value="24" />
+    <preference name="AndroidWindowSplashScreenAnimatedIcon" value="res/screen/android/splash-mark.png" />
+    <preference name="AndroidWindowSplashScreenIconBackgroundColor" value="#f7f7f4" />
   </platform>
 </widget>

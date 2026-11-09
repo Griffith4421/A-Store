@@ -41,11 +41,11 @@ if not exist "%ANDROID_HOME%\platform-tools\adb.exe" (
 )
 
 if not exist "node_modules\cordova\bin\cordova" (
-  echo [1/5] Installing project build tools...
+  echo [1/6] Installing project build tools...
   call npm install
   if errorlevel 1 goto :fail
 ) else (
-  echo [1/5] Project build tools already installed.
+  echo [1/6] Project build tools already installed.
 )
 
 set "CORDOVA=%CD%\node_modules\.bin\cordova.cmd"
@@ -54,23 +54,36 @@ if not exist "%CORDOVA%" (
   goto :fail
 )
 
-if not exist "platforms\android\build.gradle" (
-  echo [2/5] Installing Cordova Android 15...
-  call "%CORDOVA%" platform add android@15.0.0
+node -e "try{process.exit(require('./platforms/android/package.json').version==='15.1.0'?0:1)}catch(e){process.exit(1)}"
+if errorlevel 1 (
+  echo [2/6] Installing or refreshing Cordova Android 15...
+  if exist "platforms\android" (
+    call "%CORDOVA%" platform rm android
+    if errorlevel 1 goto :fail
+  )
+  call "%CORDOVA%" platform add android@15.1.0
   if errorlevel 1 goto :fail
 ) else (
-  echo [2/5] Android platform already present.
+  echo [2/6] Cordova Android 15 already installed.
 )
 
 if not exist "plugins\cordova-plugin-inappbrowser" (
-  echo [3/5] Installing InAppBrowser plugin...
+  echo [3/6] Installing InAppBrowser plugin...
   call "%CORDOVA%" plugin add cordova-plugin-inappbrowser@6.0.0
   if errorlevel 1 goto :fail
 ) else (
-  echo [3/5] InAppBrowser plugin already present.
+  echo [3/6] InAppBrowser plugin already present.
 )
 
-echo [4/5] Checking Android build requirements...
+echo [4/6] Refreshing A-Store native download and APK installer plugin...
+if exist "plugins\com.aryan.astore.download\plugin.xml" (
+  call "%CORDOVA%" plugin remove com.aryan.astore.download
+  if errorlevel 1 goto :fail
+)
+call "%CORDOVA%" plugin add ".\cordova-plugins\astore-download"
+if errorlevel 1 goto :fail
+
+echo [5/6] Checking Android build requirements...
 call "%CORDOVA%" requirements android
 if errorlevel 1 (
   echo.
@@ -78,7 +91,7 @@ if errorlevel 1 (
   goto :fail
 )
 
-echo [5/5] Building A-Store debug APK...
+echo [6/6] Building A-Store debug APK...
 call "%CORDOVA%" build android --debug
 if errorlevel 1 goto :fail
 
